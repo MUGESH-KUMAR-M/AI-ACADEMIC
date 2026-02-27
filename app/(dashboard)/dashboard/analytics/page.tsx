@@ -25,6 +25,12 @@ import {
   Sparkles,
   AlertTriangle,
   Activity,
+  ChevronDown,
+  ChevronUp,
+  Zap,
+  Users,
+  Star,
+  Gauge,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -138,10 +144,237 @@ const programColors: Record<string, string> = {
   MCA: "rose",
 };
 
+// ── Analytics Detail Panel ────────────────────────────────────────────────────
+type AnalyticsTab = "overview" | "performance" | "teaching" | "benchmarking" | "interventions";
+
+function AnalyticsDetailPanel({ analytics }: { analytics: api.CourseAnalyticsData }) {
+  const [tab, setTab] = useState<AnalyticsTab>("overview");
+
+  const tabs = [
+    { key: "overview" as const, label: "Overview", Icon: Gauge, available: !!analytics.difficulty_analysis },
+    { key: "performance" as const, label: "Performance", Icon: Users, available: !!analytics.student_performance_prediction },
+    { key: "teaching" as const, label: "Teaching", Icon: Target, available: !!analytics.teaching_effectiveness_indicators },
+    { key: "benchmarking" as const, label: "Benchmarking", Icon: Star, available: !!analytics.benchmarking },
+    { key: "interventions" as const, label: "Interventions", Icon: Zap, available: !!(analytics.intervention_strategies?.length) },
+  ].filter((t) => t.available);
+
+  if (tabs.length === 0) {
+    return <p className="text-xs text-slate-500 py-4 text-center">No analytics data available for this course.</p>;
+  }
+
+  const activeTab = tabs.find((t) => t.key === tab) ? tab : tabs[0].key;
+
+  return (
+    <div className="mt-3 space-y-3">
+      {/* Tab bar */}
+      <div className="flex gap-1 flex-wrap">
+        {tabs.map(({ key, label, Icon }) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              activeTab === key
+                ? "bg-violet-600/30 border border-violet-500/40 text-violet-300"
+                : "bg-white/5 border border-white/10 text-slate-400 hover:text-slate-300 hover:bg-white/8"
+            }`}
+          >
+            <Icon className="w-3 h-3" />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Overview tab */}
+      {activeTab === "overview" && analytics.difficulty_analysis && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="p-3 rounded-xl bg-white/5 border border-white/8 text-center">
+              <p className="text-2xl font-bold text-white">{analytics.difficulty_analysis.difficulty_score}</p>
+              <p className="text-[10px] text-slate-400 mt-0.5">Difficulty Score</p>
+            </div>
+            <div className="p-3 rounded-xl bg-white/5 border border-white/8 text-center">
+              <p className="text-sm font-bold text-orange-300 capitalize">{analytics.difficulty_analysis.overall_difficulty}</p>
+              <p className="text-[10px] text-slate-400 mt-0.5">Overall Difficulty</p>
+            </div>
+            <div className="p-3 rounded-xl bg-white/5 border border-white/8 text-center col-span-2">
+              <p className={`text-sm font-bold capitalize ${
+                analytics.difficulty_analysis.prerequisite_gaps_risk === "high" ? "text-red-400" :
+                analytics.difficulty_analysis.prerequisite_gaps_risk === "medium" ? "text-yellow-400" : "text-emerald-400"
+              }`}>{analytics.difficulty_analysis.prerequisite_gaps_risk}</p>
+              <p className="text-[10px] text-slate-400 mt-0.5">Prerequisite Gap Risk</p>
+            </div>
+          </div>
+          {analytics.difficulty_analysis.challenging_topics.length > 0 && (
+            <div className="p-3 rounded-xl bg-white/5 border border-white/8">
+              <p className="text-[11px] font-semibold text-slate-300 mb-2 flex items-center gap-1.5">
+                <AlertTriangle className="w-3 h-3 text-yellow-400" /> Challenging Topics
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {analytics.difficulty_analysis.challenging_topics.map((t, i) => (
+                  <span key={i} className="px-2 py-0.5 rounded-full bg-yellow-500/10 border border-yellow-500/20 text-[10px] text-yellow-300">{t}</span>
+                ))}
+              </div>
+            </div>
+          )}
+          {analytics.recommendations && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {(["for_faculty", "for_students", "for_curriculum"] as const).map((key) => {
+                const items = analytics.recommendations![key];
+                if (!items?.length) return null;
+                const labels = { for_faculty: "For Faculty", for_students: "For Students", for_curriculum: "For Curriculum" };
+                const colorText: Record<string, string> = { for_faculty: "text-blue-400", for_students: "text-emerald-400", for_curriculum: "text-violet-400" };
+                const colorDot: Record<string, string> = { for_faculty: "bg-blue-400", for_students: "bg-emerald-400", for_curriculum: "bg-violet-400" };
+                return (
+                  <div key={key} className="p-3 rounded-xl bg-white/5 border border-white/8">
+                    <p className={`text-[10px] font-semibold mb-2 ${colorText[key]}`}>{labels[key]}</p>
+                    <ul className="space-y-1">
+                      {items.map((item, i) => (
+                        <li key={i} className="flex items-start gap-1.5 text-[10px] text-slate-300">
+                          <span className={`w-1 h-1 rounded-full mt-1.5 flex-shrink-0 ${colorDot[key]}`} />
+                          {item}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Performance tab */}
+      {activeTab === "performance" && analytics.student_performance_prediction && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="p-3 rounded-xl bg-emerald-500/8 border border-emerald-500/20">
+              <p className="text-2xl font-bold text-emerald-300">{analytics.student_performance_prediction.expected_pass_rate}%</p>
+              <p className="text-[10px] text-slate-400 mt-0.5">Expected Pass Rate</p>
+              <div className="mt-2"><HBar value={analytics.student_performance_prediction.expected_pass_rate} max={100} color="emerald" /></div>
+            </div>
+            <div className="p-3 rounded-xl bg-violet-500/8 border border-violet-500/20">
+              <p className="text-2xl font-bold text-violet-300">{analytics.student_performance_prediction.expected_distinction_rate}%</p>
+              <p className="text-[10px] text-slate-400 mt-0.5">Expected Distinction Rate</p>
+              <div className="mt-2"><HBar value={analytics.student_performance_prediction.expected_distinction_rate} max={100} color="violet" /></div>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="p-3 rounded-xl bg-white/5 border border-white/8">
+              <p className="text-[10px] font-semibold text-red-400 mb-2 flex items-center gap-1">
+                <AlertTriangle className="w-3 h-3" /> At-Risk Factors
+              </p>
+              <ul className="space-y-1">
+                {analytics.student_performance_prediction.at_risk_factors.map((f, i) => (
+                  <li key={i} className="flex items-start gap-1.5 text-[10px] text-slate-300">
+                    <span className="w-1 h-1 rounded-full bg-red-400 mt-1.5 flex-shrink-0" />{f}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="p-3 rounded-xl bg-white/5 border border-white/8">
+              <p className="text-[10px] font-semibold text-emerald-400 mb-2 flex items-center gap-1">
+                <CheckCircle2 className="w-3 h-3" /> Success Factors
+              </p>
+              <ul className="space-y-1">
+                {analytics.student_performance_prediction.success_factors.map((f, i) => (
+                  <li key={i} className="flex items-start gap-1.5 text-[10px] text-slate-300">
+                    <span className="w-1 h-1 rounded-full bg-emerald-400 mt-1.5 flex-shrink-0" />{f}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Teaching tab */}
+      {activeTab === "teaching" && analytics.teaching_effectiveness_indicators && (
+        <div className="space-y-2">
+          {[
+            { label: "CLO Attainability", val: analytics.teaching_effectiveness_indicators.clo_attainability_score, color: "violet" },
+            { label: "Assessment Alignment", val: analytics.teaching_effectiveness_indicators.assessment_alignment_score, color: "blue" },
+            { label: "Bloom Coverage", val: analytics.teaching_effectiveness_indicators.bloom_coverage_score, color: "emerald" },
+            { label: "Overall Quality", val: analytics.teaching_effectiveness_indicators.overall_quality_score, color: "orange" },
+          ].map(({ label, val, color }) => (
+            <div key={label} className="flex items-center gap-3">
+              <span className="text-xs text-slate-300 w-44 flex-shrink-0">{label}</span>
+              <HBar value={val} max={100} color={color} />
+              <span className="text-xs font-bold text-white w-10 text-right flex-shrink-0">{val}%</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Benchmarking tab */}
+      {activeTab === "benchmarking" && analytics.benchmarking && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { label: "Avg Pass Rate (Similar)", val: analytics.benchmarking.similar_courses_avg_pass_rate, color: "blue" },
+              { label: "Industry Alignment", val: analytics.benchmarking.industry_alignment_score, color: "emerald" },
+              { label: "Research Relevance", val: analytics.benchmarking.research_relevance_score, color: "violet" },
+            ].map(({ label, val, color }) => (
+              <div key={label} className="p-3 rounded-xl bg-white/5 border border-white/8 text-center">
+                <p className="text-2xl font-bold text-white">{val}%</p>
+                <p className="text-[10px] text-slate-400 mt-1">{label}</p>
+                <div className="mt-2"><HBar value={val} max={100} color={color} /></div>
+              </div>
+            ))}
+          </div>
+          {analytics.student_performance_prediction && (
+            <div className="p-3 rounded-xl bg-white/5 border border-white/8">
+              <p className="text-[10px] font-semibold text-slate-300 mb-2">Pass Rate Comparison</p>
+              <div className="space-y-2">
+                <div className="flex items-center gap-3">
+                  <span className="text-[10px] text-slate-400 w-36 flex-shrink-0">This Course (Expected)</span>
+                  <HBar value={analytics.student_performance_prediction.expected_pass_rate} max={100} color="emerald" />
+                  <span className="text-[10px] font-bold text-emerald-300 w-10 text-right flex-shrink-0">{analytics.student_performance_prediction.expected_pass_rate}%</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-[10px] text-slate-400 w-36 flex-shrink-0">Similar Courses (Avg)</span>
+                  <HBar value={analytics.benchmarking.similar_courses_avg_pass_rate} max={100} color="blue" />
+                  <span className="text-[10px] font-bold text-blue-300 w-10 text-right flex-shrink-0">{analytics.benchmarking.similar_courses_avg_pass_rate}%</span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Interventions tab */}
+      {activeTab === "interventions" && analytics.intervention_strategies && (
+        <div className="space-y-2">
+          {analytics.intervention_strategies.map((s, i) => (
+            <div key={i} className="p-3 rounded-xl bg-white/5 border border-white/8 space-y-1.5">
+              <div className="flex items-start gap-2">
+                <span className="px-1.5 py-0.5 rounded bg-red-500/15 border border-red-500/25 text-[9px] font-bold text-red-400 flex-shrink-0 mt-0.5">TRIGGER</span>
+                <p className="text-[11px] text-slate-300">{s.trigger}</p>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="px-1.5 py-0.5 rounded bg-blue-500/15 border border-blue-500/25 text-[9px] font-bold text-blue-400 flex-shrink-0 mt-0.5">ACTION</span>
+                <p className="text-[11px] text-slate-300">{s.action}</p>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/25 text-[9px] font-bold text-emerald-400 flex-shrink-0 mt-0.5">IMPACT</span>
+                <p className="text-[11px] text-slate-300">{s.expected_impact}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function AnalyticsPage() {
   const [courses, setCourses] = useState<api.Course[]>([]);
   const [loading, setLoading] = useState(true);
+  const [expandedCourseId, setExpandedCourseId] = useState<string | null>(null);
+  const [detailMap, setDetailMap] = useState<Record<string, api.Course>>({});
+  const [loadingDetailId, setLoadingDetailId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const token = authLib.getAccessToken();
@@ -156,6 +389,24 @@ export default function AnalyticsPage() {
       setLoading(false);
     }
   }, []);
+
+  const toggleCourseExpand = useCallback(async (id: string) => {
+    if (expandedCourseId === id) { setExpandedCourseId(null); return; }
+    setExpandedCourseId(id);
+    if (!detailMap[id]) {
+      setLoadingDetailId(id);
+      try {
+        const token = authLib.getAccessToken();
+        if (!token) return;
+        const full = await api.getCourse(token, id);
+        setDetailMap((prev) => ({ ...prev, [id]: full }));
+      } catch {
+        toast.error("Failed to load course analytics");
+      } finally {
+        setLoadingDetailId(null);
+      }
+    }
+  }, [expandedCourseId, detailMap]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -639,6 +890,82 @@ export default function AnalyticsPage() {
           })}
         </div>
       )}
-    </div>
+
+      {/* ── Per-Course Deep Analytics ────────────────────────────────────── */}
+      {(() => {
+        const analyticsCourses = courses.filter((c) => c.status === "completed" || c.status === "published");
+        if (analyticsCourses.length === 0) return null;
+        return (
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                <Brain className="w-4 h-4 text-pink-400" />
+                Per-Course Deep Analytics
+              </h3>
+              <span className="text-xs text-slate-500">
+                {analyticsCourses.length} course{analyticsCourses.length !== 1 ? "s" : ""} with AI insights
+              </span>
+            </div>
+            <div className="space-y-2">
+              {analyticsCourses.map((course) => {
+                const isExpanded = expandedCourseId === course.id;
+                const isLoadingDetail = loadingDetailId === course.id;
+                const detail = detailMap[course.id];
+                const analytics = detail?.analytics_data;
+                const meta = statusMeta[course.status];
+                const Icon = meta.Icon;
+                return (
+                  <div
+                    key={course.id}
+                    className={`rounded-2xl border transition-all duration-200 ${
+                      isExpanded ? "bg-white/7 border-violet-500/30" : "bg-white/5 border-white/8 hover:border-white/15"
+                    }`}
+                  >
+                    <button
+                      onClick={() => toggleCourseExpand(course.id)}
+                      className="w-full flex items-center gap-4 p-4 text-left"
+                    >
+                      <div className={`w-9 h-9 rounded-xl bg-${meta.color}-500/15 border border-${meta.color}-500/25 flex items-center justify-center flex-shrink-0`}>
+                        <Icon className={`w-4 h-4 text-${meta.color}-400`} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-semibold text-white truncate">{course.title}</p>
+                          <span className="text-[10px] text-slate-500 font-mono">{course.code}</span>
+                        </div>
+                        <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                          <span className="text-[11px] text-slate-400">{course.program}</span>
+                          <span className="text-[11px] text-slate-400">Sem {course.semester}</span>
+                          <span className="text-[11px] text-slate-400 truncate">{course.department}</span>
+                        </div>
+                      </div>
+                      {isLoadingDetail && <Loader2 className="w-4 h-4 text-violet-400 animate-spin flex-shrink-0" />}
+                      {!isLoadingDetail && (
+                        isExpanded
+                          ? <ChevronUp className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                          : <ChevronDown className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                      )}
+                    </button>
+                    {isExpanded && (
+                      <div className="px-4 pb-4">
+                        {isLoadingDetail ? (
+                          <div className="flex items-center justify-center py-8 gap-2">
+                            <Loader2 className="w-5 h-5 text-violet-400 animate-spin" />
+                            <span className="text-sm text-slate-400">Loading analytics…</span>
+                          </div>
+                        ) : analytics ? (
+                          <AnalyticsDetailPanel analytics={analytics} />
+                        ) : (
+                          <p className="text-xs text-slate-500 py-4 text-center">No analytics data available for this course yet.</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}    </div>
   );
 }

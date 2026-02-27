@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
+import { ObeReportViewer } from "@/components/courses/ObeReportViewer";
 import type {
   GenerationResult,
   ResultCurriculum,
@@ -148,7 +149,7 @@ export default function GenerationResultView({ result }: Props) {
         <AssessmentsPanel data={result.assessments} />
       )}
       {subTab === "obe" && (
-        <EmptyOrJsonPanel label="OBE Report" data={result.obe_report} />
+        <ObeReportViewer report={result.obe_report} />
       )}
       {subTab === "analytics" && (
         <EmptyOrJsonPanel label="Analytics" data={result.analytics} />
@@ -740,7 +741,7 @@ function QuestionCard({ q, idx, sectionType }: { q: import("@/lib/api").Assessme
 }
 
 // ── Empty / JSON fallback ──────────────────────────────────────────────────────
-function EmptyOrJsonPanel({ label, data }: { label: string; data?: Record<string, unknown> }) {
+function EmptyOrJsonPanel({ label, data }: { label: string; data?: object }) {
   const isEmpty = !data || Object.keys(data).length === 0;
   if (isEmpty) {
     return (

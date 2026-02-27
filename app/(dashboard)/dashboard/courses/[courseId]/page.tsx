@@ -1,7 +1,7 @@
 "use client";
 
 import { use, useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -34,6 +34,7 @@ import { Card, CardContent } from "@/components/ui/Card";
 import GenerateModal from "@/components/courses/GenerateModal";
 import AgentStatusPanel from "@/components/courses/AgentStatusPanel";
 import GenerationResultView from "@/components/courses/GenerationResultView";
+import ExportPanel from "@/components/courses/ExportPanel";
 import * as api from "@/lib/api";
 import * as authLib from "@/lib/auth";
 import toast from "react-hot-toast";
@@ -52,7 +53,7 @@ const REGENERATE_COMPONENTS: {
   { key: "analytics", label: "Analytics", desc: "Performance insights", Icon: BarChart3, color: "indigo" },
 ];
 
-const TABS = ["overview", "generate", "results"] as const;
+const TABS = ["overview", "generate", "results", "export"] as const;
 type Tab = (typeof TABS)[number];
 
 export default function CourseDetailPage({
@@ -62,6 +63,7 @@ export default function CourseDetailPage({
 }) {
   const { courseId } = use(params);
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   // ── Course data ────────────────────────────────────────────────────────────
   const [course, setCourse] = useState<api.Course | null>(null);
@@ -85,16 +87,22 @@ export default function CourseDetailPage({
     try {
       const found = await api.getCourse(token, courseId);
       setCourse(found);
-      // Auto-switch tab based on status
-      if (found.status === "generating" || found.status === "failed") setTab("generate");
-      if (found.status === "completed" || found.status === "published") setTab("results");
+      // Honour ?tab= query param first, then fall back to status-based auto-switch
+      const qTab = searchParams.get("tab") as Tab | null;
+      if (qTab && TABS.includes(qTab as Tab)) {
+        setTab(qTab);
+      } else if (found.status === "generating" || found.status === "failed") {
+        setTab("generate");
+      } else if (found.status === "completed" || found.status === "published") {
+        setTab("results");
+      }
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Failed to load course");
       router.replace("/dashboard/courses");
     } finally {
       setCourseLoading(false);
     }
-  }, [courseId, router]);
+  }, [courseId, router, searchParams]);
 
   useEffect(() => {
     loadCourse();
@@ -255,10 +263,14 @@ export default function CourseDetailPage({
       </div>
 
       {/* ── Tabs ──────────────────────────────────────────────────────── */}
-      <div className="flex gap-1 p-1 bg-white/5 border border-white/10 rounded-xl w-fit">
+      <div className="flex gap-1 p-1 bg-white/5 border border-white/10 rounded-xl w-fit flex-wrap">
         {TABS.map((t) => {
-          const label = t === "generate" ? "Generation" : t === "results" ? "Results" : "Overview";
-          const disabled = t === "results" && !isCompleted;
+          const label =
+            t === "generate" ? "Generation"
+            : t === "results" ? "Results"
+            : t === "export" ? "Export"
+            : "Overview";
+          const disabled = (t === "results" || t === "export") && !isCompleted;
           return (
             <button
               key={t}
@@ -687,6 +699,11 @@ export default function CourseDetailPage({
           </div>
         );
       })()}
+
+      {/* ── EXPORT TAB ───────────────────────────────────────────────── */}
+      {tab === "export" && isCompleted && (
+        <ExportPanel course={course} />
+      )}
 
       {/* ── Generate Modal ────────────────────────────────────────────── */}
       <GenerateModal

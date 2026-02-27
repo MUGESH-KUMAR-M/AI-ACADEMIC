@@ -44,25 +44,76 @@ export interface ChangePasswordPayload {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+/** Redirect to /login and wipe stored tokens (safe to call from anywhere). */
+function redirectToLogin() {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem("aa_access_token");
+  localStorage.removeItem("aa_refresh_token");
+  window.location.replace("/login");
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
+  const { headers: optHeaders, ...rest } = options;
   const res = await fetch(`${BASE_URL}${path}`, {
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json",
-      ...(options.headers ?? {}),
+      ...(optHeaders ?? {}),
     },
-    ...options,
+    ...rest,
   });
 
   if (!res.ok) {
+    // ── Auth failures → clear session and go to login ──────────────────────
+    if (res.status === 401 || res.status === 403) {
+      redirectToLogin();
+      throw new Error("Session expired. Please log in again.");
+    }
+
     let msg = `HTTP ${res.status}`;
     try {
       const data = await res.json();
-      msg = data?.detail ?? data?.message ?? msg;
-    } catch {}
+      const detail = data?.detail;
+
+      if (typeof detail === "string") {
+        msg = detail;
+        // FastAPI auth dependency sometimes surfaces 422 for bad/missing token
+        if (
+          res.status === 422 &&
+          (detail.toLowerCase().includes("credential") ||
+            detail.toLowerCase().includes("authoriz") ||
+            detail.toLowerCase().includes("token"))
+        ) {
+          redirectToLogin();
+        }
+      } else if (Array.isArray(detail)) {
+        // FastAPI validation error array — check if it's an auth field error
+        const isAuthError = detail.some(
+          (e: { loc?: string[] }) =>
+            e.loc?.includes("authorization") || e.loc?.includes("header")
+        );
+        if (res.status === 422 && isAuthError) {
+          redirectToLogin();
+          throw new Error("Session expired. Please log in again.");
+        }
+        // Surface the first human-readable message
+        msg = detail.map((e: { msg?: string }) => e.msg ?? "").filter(Boolean).join("; ") || msg;
+      } else if (detail && typeof detail === "object") {
+        msg =
+          (detail as Record<string, unknown>).message as string ??
+          JSON.stringify(detail);
+      } else if (typeof data?.message === "string") {
+        msg = data.message;
+      }
+    } catch (parseErr) {
+      // keep default msg if body isn't JSON
+      if (parseErr instanceof Error && parseErr.message !== msg) {
+        // ignore parse errors
+      }
+    }
     throw new Error(msg);
   }
 
@@ -150,7 +201,43 @@ export interface Course {
   semester_plan_data?: ResultSemesterPlan;
   assessment_data?: ResultAssessments;
   obe_data?: Record<string, unknown>;
-  analytics_data?: Record<string, unknown>;
+  analytics_data?: CourseAnalyticsData;
+}
+
+export interface CourseAnalyticsData {
+  difficulty_analysis?: {
+    overall_difficulty: string;
+    difficulty_score: number;
+    challenging_topics: string[];
+    prerequisite_gaps_risk: string;
+  };
+  student_performance_prediction?: {
+    expected_pass_rate: number;
+    expected_distinction_rate: number;
+    at_risk_factors: string[];
+    success_factors: string[];
+  };
+  teaching_effectiveness_indicators?: {
+    clo_attainability_score: number;
+    assessment_alignment_score: number;
+    bloom_coverage_score: number;
+    overall_quality_score: number;
+  };
+  recommendations?: {
+    for_faculty: string[];
+    for_students: string[];
+    for_curriculum: string[];
+  };
+  benchmarking?: {
+    similar_courses_avg_pass_rate: number;
+    industry_alignment_score: number;
+    research_relevance_score: number;
+  };
+  intervention_strategies?: Array<{
+    trigger: string;
+    action: string;
+    expected_impact: string;
+  }>;
 }
 
 export interface CreateCoursePayload {
@@ -251,6 +338,29 @@ export const deleteCourse = (token: string, id: string): Promise<void> =>
     headers: authHeaders(token),
   });
 
+/** GET /courses/{id}/assessments */
+export const getCourseAssessments = (
+  token: string,
+  courseId: string
+): Promise<CourseAssessmentsResponse> =>
+  request(`/courses/${courseId}/assessments`, {
+    method: "GET",
+    headers: authHeaders(token),
+  });
+
+/** GET /courses/{id}/question-bank?bloom_level=Full */
+export const getCourseQuestionBank = (
+  token: string,
+  courseId: string,
+  bloomLevel?: string
+): Promise<QuestionBankResponse> => {
+  const qs = bloomLevel ? `?bloom_level=${encodeURIComponent(bloomLevel)}` : "";
+  return request(`/courses/${courseId}/question-bank${qs}`, {
+    method: "GET",
+    headers: authHeaders(token),
+  });
+};
+
 // ─── Generation Types ─────────────────────────────────────────────────────────
 
 export type GenerationMode = "full" | "curriculum" | "semester" | "assessments" | "obe" | "analytics";
@@ -269,6 +379,25 @@ export interface AgentStatus {
   status: AgentRunStatus;
   updated_at: string;
 }
+
+// ─── Agent Registry Types ─────────────────────────────────────────────────────
+
+export interface AgentInfo {
+  name: string;
+  id: string;
+  description: string;
+}
+
+export interface AgentsResponse {
+  agents: AgentInfo[];
+}
+
+/** GET /agents/ — list all registered agents (requires auth) */
+export const getAgents = (token: string): Promise<AgentsResponse> =>
+  request("/agents/", {
+    method: "GET",
+    headers: authHeaders(token),
+  });
 
 export interface GeneratePayload {
   course_id: string;
@@ -396,6 +525,30 @@ export interface ResultAssessments {
   bloom_coverage?: Record<string, number>;
 }
 
+/** Response from GET /courses/{id}/assessments
+ *  The `assessments` field is a nested ResultAssessments wrapper object.
+ */
+export interface CourseAssessmentsResponse {
+  course_id: string;
+  /** Nested object — real list is at assessments.assessments[] */
+  assessments: ResultAssessments;
+}
+
+/**
+ * Response from GET /courses/{id}/question-bank
+ * Two shapes depending on whether bloom_level filter is present:
+ *   No filter  → { course_id, question_bank: { total_questions, by_bloom_level } }
+ *   Filtered   → { bloom_level, questions[] }
+ */
+export interface QuestionBankResponse {
+  // No-filter shape
+  course_id?: string;
+  question_bank?: { total_questions: number; by_bloom_level: Record<string, number> };
+  // Filtered shape
+  bloom_level?: string;
+  questions?: AssessmentQuestion[];
+}
+
 export interface GenerationResult {
   workflow_id: string;
   course_id: string;
@@ -404,11 +557,86 @@ export interface GenerationResult {
   curriculum?: ResultCurriculum;
   semester_plan?: ResultSemesterPlan;
   assessments?: ResultAssessments;
-  obe_report?: Record<string, unknown>;
-  analytics?: Record<string, unknown>;
+  obe_report?: ObeReport | Record<string, unknown>;
+  analytics?: CourseAnalyticsData;
   file_urls?: { syllabus_pdf: string | null; presentations: string[] };
   duration_seconds?: number;
   errors?: string[];
+}
+
+// ─── OBE Report Types ─────────────────────────────────────────────────────────
+
+export interface CourseOutcome {
+  id: string;             // "CO1", "CO2" …
+  statement: string;
+  bloom_level: string;
+  po_mapping: string[];   // ["PO1", "PO3"]
+  pso_mapping?: string[];
+}
+
+export interface ProgramOutcome {
+  id: string;             // "PO1" … "PO12"
+  statement: string;
+}
+
+/** Correlation strength: 1 = Low · 2 = Medium · 3 = High · 0 = No mapping */
+export type CorrelationLevel = 0 | 1 | 2 | 3;
+
+export interface AttainmentResult {
+  co: string;
+  direct_attainment: number;   // 0-100
+  indirect_attainment: number; // 0-100
+  overall_attainment: number;  // 0-100
+  target_attainment?: number;
+  attainment_met?: boolean;
+}
+
+export interface ObeReport {
+  /** CO → PO correlation levels (1 Low · 2 Medium · 3 High) */
+  co_po_mapping?: Record<string, Record<string, number>>;
+  /** CO → PSO correlation levels */
+  co_pso_mapping?: Record<string, Record<string, number>>;
+  /** Justification text keyed by "CLO1-PO1" etc. */
+  mapping_justification?: Record<string, string>;
+  /** Per-CO attainment target and measurement method */
+  co_attainment_targets?: Record<string, { target: number; method: string }>;
+  /** Per-PO contribution from COs */
+  po_attainment_contribution?: Record<string, { contributing_cos: string[]; average_level: number }>;
+  /** Assessment name → list of CLOs it evaluates */
+  assessment_co_mapping?: Record<string, string[]>;
+  recommendations?: string[];
+  nba_compliance_notes?: string;
+  compliance_score?: number;
+  bloom_analysis?: {
+    distribution: Record<string, number>;
+    higher_order_count: number;
+    total: number;
+    hot_ratio: number;
+    is_adequate: boolean;
+    recommendation: string;
+  };
+  // legacy fields kept for backward compat
+  course_outcomes?: CourseOutcome[];
+  program_outcomes?: ProgramOutcome[];
+  co_po_matrix?: Record<string, Record<string, CorrelationLevel>>;
+  co_pso_matrix?: Record<string, Record<string, CorrelationLevel>>;
+  pso_list?: ProgramOutcome[];
+  attainment_levels?: AttainmentResult[];
+  bloom_distribution?: Record<string, number>;
+  summary?: {
+    total_cos?: number;
+    total_pos?: number;
+    average_attainment?: number;
+    nba_compliance?: boolean;
+    program?: string;
+    department?: string;
+  };
+  [key: string]: unknown;
+}
+
+export interface ObeReportResponse {
+  course_id: string;
+  obe_report: ObeReport;
 }
 
 export interface RegenerateResponse {
@@ -451,6 +679,16 @@ export const getCourseResult = (
     headers: authHeaders(token),
   });
 
+/** GET /courses/{id}/obe-report */
+export const getObeReport = (
+  token: string,
+  courseId: string
+): Promise<ObeReportResponse> =>
+  request(`/courses/${courseId}/obe-report`, {
+    method: "GET",
+    headers: authHeaders(token),
+  });
+
 /** POST /courses/{id}/regenerate/{component} */
 export const regenerateComponent = (
   token: string,
@@ -463,17 +701,81 @@ export const regenerateComponent = (
     body: "",
   });
 
+// ─── Question Paper Types ─────────────────────────────────────────────────────
+
+export interface ExamTypePart {
+  label: string;
+  type: string;
+  num_questions: number;
+  marks_each: number;
+  choose?: number;
+  either_or?: boolean;
+}
+
+export interface ExamTypeConfig {
+  duration_minutes: number | null;
+  total_marks: number | null;
+  modules_covered: string | null;
+  instructions: string | null;
+  parts: ExamTypePart[];
+}
+
+export interface ExamTypesResponse {
+  exam_types: Record<string, ExamTypeConfig>;
+}
+
+export interface QuestionPaperPayload {
+  course_id: string;
+  exam_type: string;
+  department: string;
+  institution_name: string;
+  academic_year: string;
+  subject_code: string;
+  modules_covered: string;
+  duration_minutes: number;
+  total_marks: number;
+  instructions: string;
+  difficulty: "easy" | "medium" | "hard" | "mixed";
+  additional_context?: string;
+  /** Sent as query-param ?include_answer_hints=true — NOT in the request body */
+  export_format?: "pdf" | "docx";
+}
+
+// ─── Question Paper Endpoints ─────────────────────────────────────────────────
+
+/** GET /question-papers/exam-types */
+export const getExamTypes = (): Promise<ExamTypesResponse> =>
+  request("/question-papers/exam-types", { method: "GET" });
+
+/** POST /question-papers/generate → PDF blob */
+export const generateQuestionPaper = (
+  token: string,
+  payload: QuestionPaperPayload,
+  includeAnswerHints = false
+): Promise<{ blob: Blob; filename: string }> =>
+  downloadBlob(
+    `/question-papers/generate${includeAnswerHints ? "?include_answer_hints=true" : ""}`,
+    "POST",
+    token,
+    JSON.stringify(payload)
+  );
+
 // ─── Export helpers ───────────────────────────────────────────────────────────
 
 async function downloadBlob(
   path: string,
   method: "GET" | "POST",
-  token: string
+  token: string,
+  body?: string
 ): Promise<{ blob: Blob; filename: string }> {
   const res = await fetch(`${BASE_URL}${path}`, {
     method,
-    headers: { Accept: "*/*", Authorization: `Bearer ${token}` },
-    ...(method === "POST" ? { body: "" } : {}),
+    headers: {
+      Accept: "*/*",
+      Authorization: `Bearer ${token}`,
+      ...(body ? { "Content-Type": "application/json" } : {}),
+    },
+    ...(body ? { body } : method === "POST" ? { body: "" } : {}),
   });
 
   if (!res.ok) {

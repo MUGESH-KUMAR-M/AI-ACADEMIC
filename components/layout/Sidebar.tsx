@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation";
 import {
   GraduationCap,
   LayoutDashboard,
-  BookOpen,
   Layers,
   Calendar,
   FileText,
@@ -15,6 +14,7 @@ import {
   User,
   LogOut,
   BrainCircuit,
+  Bot,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Badge } from "@/components/ui/Badge";
@@ -29,11 +29,6 @@ const navItems = [
     label: "Courses",
     href: "/dashboard/courses",
     icon: Layers,
-  },
-  {
-    label: "Curriculum",
-    href: "/dashboard/curriculum",
-    icon: BookOpen,
   },
   {
     label: "Semester Plan",
@@ -59,6 +54,11 @@ const navItems = [
     label: "Analytics",
     href: "/dashboard/analytics",
     icon: BarChart3,
+  },
+  {
+    label: "AI Agents",
+    href: "/dashboard/agents",
+    icon: Bot,
   },
 ];
 
