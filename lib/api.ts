@@ -313,7 +313,7 @@ export const listCourses = (
     if (v !== undefined && v !== "" && v !== null) params.set(k, String(v));
   });
   const qs = params.toString();
-  return request(`/courses/${qs ? `?${qs}` : ""}`, {
+  return request(`/courses${qs ? `?${qs}` : ""}`, {
     method: "GET",
     headers: authHeaders(token),
   });
